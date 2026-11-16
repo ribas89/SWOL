@@ -6,7 +6,7 @@ import (
 	"net"
 
 	"github.com/spf13/cobra"
-	"github.com/trugamr/wol/magicpacket"
+	"swol/magicpacket"
 )
 
 func init() {

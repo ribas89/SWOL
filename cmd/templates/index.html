@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="en">
+<html lang="en" data-addresses-masked="true">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
@@ -13,14 +13,12 @@
       media="(prefers-color-scheme: dark)"
       content="#0e1626"
     />
-    <link
-      rel="icon"
-      type="image/png"
-      sizes="32x32"
-      href="/static/favicon-32.png"
-    />
+    <link rel="icon" type="image/svg+xml" href="/static/swol.svg" />
+    <link rel="icon" type="image/png" sizes="32x32" href="/static/favicon-32.png" />
+    <link rel="shortcut icon" href="/static/favicon.ico" />
     <link rel="apple-touch-icon" href="/static/apple-touch-icon.png" />
-    <title>wol</title>
+    <title>SWOL - Sleep-on-LAN &amp; Wake-on-LAN</title>
+    <link rel="stylesheet" href="/static/bootstrap-icons.css" />
     <style>
       :root {
         color-scheme: light;
@@ -115,8 +113,10 @@
       }
 
       .masthead__logo {
-        width: 52px;
-        height: 52px;
+        width: 78px;
+        height: 78px;
+        flex: none;
+        object-fit: contain;
         border-radius: var(--radius);
       }
 
@@ -124,6 +124,7 @@
         display: flex;
         flex-direction: column;
         gap: 3px;
+        min-width: 0;
       }
 
       .masthead__title {
@@ -139,7 +140,7 @@
         font-weight: 500;
       }
 
-      /* Flash — soft tinted toast. Renders from the flash cookie; the only
+      /* Flash - soft tinted toast. Renders from the flash cookie; the only
          animation in the page, so the post-wake reload stays calm. */
       .flash {
         display: flex;
@@ -174,7 +175,7 @@
 
       .section__head {
         display: flex;
-        align-items: baseline;
+        align-items: center;
         justify-content: space-between;
         gap: 1rem;
         margin: 0.5rem 0 1.25rem;
@@ -193,62 +194,188 @@
 
       .machines {
         display: grid;
-        grid-template-columns: repeat(auto-fill, minmax(min(280px, 100%), 1fr));
+        grid-template-columns: repeat(auto-fit, minmax(min(265px, 100%), 1fr));
+        align-items: stretch;
+        grid-auto-rows: minmax(200px, auto);
         gap: 1rem;
         padding: 0;
         margin: 0;
         list-style: none;
       }
 
+      /* Cards stretch to the grid row height. The body reserves the same
+         space for network details even if an address is not displayed,
+         keeping both power buttons aligned across neighboring cards. */
       .machine {
-        display: flex;
-        align-items: center;
+        container-type: inline-size;
+        display: grid;
+        grid-template-rows: auto minmax(0, 1fr);
         gap: 1rem;
+        min-width: 0;
+        min-height: 200px;
         background: var(--surface);
         border: 1px solid var(--border);
         border-radius: var(--radius);
-        padding: 1.1rem 1.2rem;
+        padding: 1.05rem;
       }
 
+      .machine__name-details { min-width: 0; }
+      .machine__identity {
+        display: flex;
+        align-items: center;
+        gap: 0.55rem;
+        min-width: 0;
+        min-height: 25px;
+      }
+      .machine__name {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.45rem;
+        min-width: 0;
+        font-weight: 750;
+        font-size: 1.02rem;
+        line-height: 1.4;
+        overflow-wrap: anywhere;
+      }
+      .machine__icon { color: var(--accent); font-size: 1.08rem; flex: none; }
+      .machine__name-text { min-width: 0; overflow-wrap: anywhere; }
+      .machine__name-details > summary {
+        cursor: pointer;
+        list-style: none;
+      }
+      .machine__name-details > summary::-webkit-details-marker { display: none; }
+      .machine__name-details > summary:hover .machine__name,
+      .machine__name-details > summary:focus-visible .machine__name { color: var(--accent); }
+      .machine__name-details > summary:focus-visible,
+      .privacy-toggle:focus-visible,
+      .machine__power-button:focus-visible {
+        outline: 3px solid var(--accent);
+        outline-offset: 3px;
+      }
+      .machine__details-icon { color: var(--accent); font-size: 0.92rem; flex: none; }
+      .machine__details-panel {
+        margin-top: 0.8rem;
+        padding: 0.8rem;
+        background: var(--accent-soft);
+        border-radius: var(--radius-sm);
+        max-height: 310px;
+        overflow: auto;
+        max-width: 100%;
+      }
+      .machine__details-heading { margin: 0 0 0.5rem; font-size: 0.78rem; font-weight: 700; }
+      .machine__details-data {
+        margin: 0;
+        font-size: 0.74rem;
+        line-height: 1.6;
+        white-space: pre-wrap;
+        overflow-wrap: anywhere;
+        color: var(--text);
+      }
+
+      .machine__body {
+        display: grid;
+        grid-template-rows: minmax(50px, 1fr) auto;
+        gap: 0.9rem;
+        min-width: 0;
+      }
       .machine__info {
         display: flex;
         flex-direction: column;
-        gap: 0.35rem;
+        align-items: flex-start;
+        gap: 0.6rem;
         min-width: 0;
-        /* Fill the card's height (cards in a row share the tallest one's height)
-           so the name/MAC stay anchored to the top instead of floating in the
-           vertical center when a sibling card is taller for its schedule chip.
-           The Wake button keeps the parent's center alignment. */
-        align-self: stretch;
       }
-
-      .machine__name {
-        display: inline-block;
-        vertical-align: middle;
-        max-width: calc(100% - 1.3rem);
-        font-weight: 700;
-        font-size: 1.02rem;
-        line-height: 1.3;
-        overflow: hidden;
-        text-overflow: ellipsis;
-        white-space: nowrap;
-      }
-
-      .machine__mac {
-        font-size: 0.82rem;
-        color: var(--text-muted);
-        letter-spacing: 0.02em;
-      }
-
-      /* Schedule chips — shown only for machines with a cron wake-up. One chip
-         per schedule; they wrap if a machine has several. */
-      .machine__schedules {
+      .machine__property {
         display: flex;
         flex-wrap: wrap;
+        align-items: baseline;
         gap: 0.35rem;
-        margin-top: 0.15rem;
+        min-width: 0;
+        font-size: 0.79rem;
+        line-height: 1.4;
+      }
+      .machine__property-label {
+        flex: none;
+        font-size: 0.75rem;
+        font-weight: 700;
+        color: var(--text-muted);
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+      }
+      .machine__property-value { color: var(--text-muted); overflow-wrap: anywhere; min-width: 0; }
+      .private-value__mask, .private-details__masked { display: none; }
+      html[data-addresses-masked="true"] .private-value__plain,
+      html[data-addresses-masked="true"] .private-details__plain { display: none; }
+      html[data-addresses-masked="true"] .private-value__mask { display: inline; }
+      html[data-addresses-masked="true"] .private-details__masked { display: block; }
+      .private-value__mask { letter-spacing: -0.01em; user-select: none; }
+
+      .privacy-toggle {
+        color: var(--text-muted);
+        background: transparent;
+        border: 1px solid var(--border);
+        border-radius: 10px;
+        cursor: pointer;
+        width: 38px;
+        height: 38px;
+        font-size: 1.1rem;
+        display: inline-grid;
+        place-items: center;
+        flex: none;
+      }
+      .privacy-toggle:hover { color: var(--accent); background: var(--accent-soft); }
+      .privacy-toggle__masked { display: none; }
+      html[data-addresses-masked="true"] .privacy-toggle__masked { display: inline; }
+      html[data-addresses-masked="true"] .privacy-toggle__visible { display: none; }
+      .section__title-wrap { display: flex; align-items: center; gap: 0.7rem; }
+
+      /* Equal-width horizontal power controls below the network details.
+         They touch with a square inner edge and rounded outer corners. */
+      .machine__power-actions {
+        display: flex;
+        width: 100%;
+        min-width: 0;
+        border-radius: 12px;
+        overflow: hidden;
+      }
+      .machine__power-actions form {
+        display: flex;
+        flex: 1 1 50%;
+        min-width: 0;
+        margin: 0;
+      }
+      .machine__power-button {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        gap: 0.45rem;
+        width: 100%;
+        min-height: 52px;
+        border: 0;
+        color: #fff;
+        font-family: inherit;
+        font-weight: 750;
+        font-size: 0.9rem;
+        cursor: pointer;
+        touch-action: manipulation;
+        transition: background 0.15s;
+      }
+      .machine__power-button i { font-size: 1.08rem; }
+      .machine__power-button--wake { background: #16a34a; border-radius: 12px 0 0 12px; }
+      .machine__power-button--wake:hover { background: #15803d; }
+      .machine__power-button--sleep { background: #ef4444; border-radius: 0 12px 12px 0; }
+      .machine__power-button--sleep:hover { background: #dc2626; }
+      .machine__power-actions--wake-only .machine__power-button--wake { border-radius: 12px; }
+      .machine__power-button:focus-visible { outline: 3px solid var(--accent); outline-offset: 2px; position: relative; z-index: 1; }
+
+      /* In narrow cards the whole address stays legible on its own line,
+         instead of wrapping in the middle of an IP or MAC. */
+      @container (max-width: 225px) {
+        .machine__property { flex-direction: column; align-items: flex-start; gap: 0.22rem; }
+        .machine__property-value { font-size: 0.76rem; }
       }
 
+      .machine__schedules { display: flex; flex-wrap: wrap; gap: 0.35rem; }
       .machine__schedule {
         display: inline-flex;
         align-items: center;
@@ -262,75 +389,23 @@
         font-weight: 600;
         line-height: 1.4;
       }
-
-      .machine__schedule svg {
-        flex: none;
-        width: 12px;
-        height: 12px;
-      }
-
-      .machine__schedule .mono {
-        overflow: hidden;
-        text-overflow: ellipsis;
-        white-space: nowrap;
-      }
-
-      /* The "+N" pill collapsing any schedules beyond the first; full list in
-         its title. Muted/outlined so it reads as a count, not another cron. */
+      .machine__schedule i { font-size: 0.75rem; }
+      .machine__schedule .mono { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
       .machine__schedule--more {
         background: transparent;
         color: var(--text-muted);
         border: 1px dashed var(--border);
         cursor: default;
       }
-
-      /* vertical-align:middle aligns the dot to the text's optical center (its x-height
-         midpoint), which flex centering misses — a flex-centered dot reads as too low. */
       .machine__status {
-        display: inline-block;
-        vertical-align: middle;
-        margin-right: 0.5rem;
+        flex: none;
         width: 10px;
         height: 10px;
         border-radius: 50%;
         background: var(--unknown);
       }
-
-      .machine__status[data-status="online"] {
-        background: var(--online);
-      }
-
-      .machine__status[data-status="offline"] {
-        background: var(--offline);
-      }
-
-      .wake-form {
-        margin-left: auto;
-      }
-
-      .wake {
-        flex: none;
-        border: none;
-        cursor: pointer;
-        font-family: inherit;
-        font-weight: 700;
-        font-size: 0.82rem;
-        letter-spacing: 0.03em;
-        color: #fff;
-        background: var(--accent);
-        padding: 0.6rem 1.15rem;
-        border-radius: var(--radius-sm);
-        transition: background 0.18s ease;
-      }
-
-      .wake:hover {
-        background: var(--accent-hover);
-      }
-
-      .wake:focus-visible {
-        outline: 3px solid var(--accent-soft);
-        outline-offset: 2px;
-      }
+      .machine__status[data-status="online"] { background: var(--online); }
+      .machine__status[data-status="offline"] { background: var(--offline); }
 
       .empty {
         display: flex;
@@ -354,10 +429,7 @@
         color: var(--accent);
       }
 
-      .empty__icon svg {
-        width: 32px;
-        height: 32px;
-      }
+      .empty__icon i { font-size: 2rem; }
 
       .empty__title {
         font-weight: 700;
@@ -372,46 +444,6 @@
         margin: 0;
       }
 
-      .footer {
-        margin-top: 2.5rem;
-        padding-top: 1.5rem;
-        border-top: 1px solid var(--divider);
-        display: flex;
-        flex-direction: column;
-        align-items: center;
-        gap: 0.75rem;
-      }
-
-      .footer__links {
-        display: flex;
-        gap: 0.5rem;
-        flex-wrap: wrap;
-        justify-content: center;
-      }
-
-      .footer__link {
-        color: var(--text-muted);
-        text-decoration: none;
-        font-size: 0.85rem;
-        font-weight: 500;
-        padding: 0.35rem 0.7rem;
-        border-radius: 8px;
-        transition:
-          color 0.2s,
-          background 0.2s;
-      }
-
-      .footer__link:hover {
-        color: var(--accent);
-        background: var(--accent-soft);
-      }
-
-      .footer__version {
-        font-size: 0.76rem;
-        color: var(--text-muted);
-        opacity: 0.85;
-      }
-
       @keyframes flashIn {
         from {
           opacity: 0;
@@ -421,6 +453,52 @@
           opacity: 1;
           transform: none;
         }
+      }
+
+      @media (max-width: 640px) {
+        .page {
+          padding: 1.25rem 0.8rem 2rem;
+        }
+
+        .machines {
+          grid-template-columns: minmax(0, 1fr);
+          grid-auto-rows: auto;
+          align-items: start;
+          gap: 0.75rem;
+        }
+
+        /* On mobile, each card fits its own content. Equal-height cards are
+           useful for desktop rows but leave large gaps on narrow screens. */
+        .machine {
+          padding: 1rem;
+          min-height: 0;
+          grid-template-rows: auto auto;
+          gap: 0.8rem;
+        }
+        .machine__body {
+          grid-template-rows: auto auto;
+          gap: 0.9rem;
+        }
+        .machine__body:has(.machine__info:not(:has(.machine__property, .machine__schedules))) {
+          gap: 0;
+        }
+        .machine__info:not(:has(.machine__property, .machine__schedules)) {
+          display: none;
+        }
+
+        .masthead {
+          gap: 0.75rem;
+        }
+
+        .masthead__logo {
+          width: 68px;
+          height: 68px;
+        }
+      }
+
+      @media (max-width: 360px) {
+        .machine { padding: 0.85rem; }
+        .masthead__logo { width: 62px; height: 62px; }
       }
 
       @media (prefers-reduced-motion: reduce) {
@@ -434,28 +512,17 @@
   <body>
     <div class="page">
       <header class="masthead">
-        <img class="masthead__logo" src="/static/logo.png" alt="wol logo" />
+        <img class="masthead__logo" src="/static/swol.svg" alt="SWOL logo" />
         <div class="masthead__text">
-          <div class="masthead__title">wol</div>
-          <div class="masthead__subtitle">Wake-on-LAN web interface</div>
+          <div class="masthead__title">SWOL</div>
+          <div class="masthead__subtitle">Sleep-on-LAN &amp; Wake-on-LAN web interface</div>
         </div>
       </header>
 
       {{if .FlashMessage}}
       <div class="flash" role="status">
         <span class="flash__icon" aria-hidden="true">
-          <svg
-            width="18"
-            height="18"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            stroke-width="2.2"
-            stroke-linecap="round"
-            stroke-linejoin="round"
-          >
-            <path d="M13 2 3 14h9l-1 8 10-12h-9l1-8Z" />
-          </svg>
+          <i class="bi bi-lightning-charge-fill"></i>
         </span>
         <span class="flash__text">{{.FlashMessage}}</span>
       </div>
@@ -464,75 +531,99 @@
       <main class="section">
         {{if .Machines}}
         <div class="section__head">
-          <h2 class="section__heading">Machines</h2>
+          <div class="section__title-wrap">
+            <h2 class="section__heading">Machines</h2>
+            <button class="privacy-toggle" type="button" id="address-privacy-toggle" aria-label="Show IP and MAC addresses" aria-pressed="true" title="Show IP and MAC addresses">
+              <i class="bi bi-eye privacy-toggle__visible" aria-hidden="true"></i>
+              <i class="bi bi-eye-slash privacy-toggle__masked" aria-hidden="true"></i>
+            </button>
+          </div>
           <span class="section__count">{{len .Machines}} configured</span>
         </div>
         <ul class="machines">
-          {{range .Machines}}
+          {{range $i, $m := .Machines}}
           <li class="machine" data-name="{{.Name}}">
-            <div class="machine__info">
-              <div class="machine__name-row">
-                <span class="machine__status" data-status="unknown"></span
-                ><span class="machine__name">{{.Name}}</span>
-              </div>
-              <span class="machine__mac mono">{{.Mac}}</span>
-              {{$scheds := index $.SchedulesByMachine .Name}}
-              {{if $scheds}}
-              {{$first := index $scheds 0}}
-              <div class="machine__schedules">
-                <span
-                  class="machine__schedule"
-                  {{if $first.Name}}title="{{$first.Name}}"{{end}}
-                >
-                  <svg
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    stroke-width="2"
-                    stroke-linecap="round"
-                    stroke-linejoin="round"
-                    aria-hidden="true"
-                  >
-                    <circle cx="12" cy="12" r="9" />
-                    <path d="M12 7v5l3 2" />
-                  </svg>
-                  <span class="mono">{{$first.Cron}}</span>
+            {{if .DetailsVisible}}
+            <details class="machine__name-details">
+              <summary class="machine__identity" title="Show configuration for {{.Name}}" aria-label="Show configuration for {{.Name}}">
+                <span class="machine__status" data-status="unknown" role="img" aria-label="Reachability unknown"></span>
+                <span class="machine__name">
+                  {{if .IconClass}}<i class="{{.IconClass}} machine__icon" aria-hidden="true"></i>{{end}}
+                  <span class="machine__name-text">{{.Name}}</span>
+                  <i class="bi bi-info-circle machine__details-icon" aria-hidden="true"></i>
                 </span>
-                {{if gt (len $scheds) 1}}
-                {{$rest := slice $scheds 1}}
-                <span
-                  class="machine__schedule machine__schedule--more"
-                  title="{{range $i, $r := $rest}}{{if $i}}&#10;{{end}}{{if $r.Name}}{{$r.Name}}: {{end}}{{$r.Cron}}{{end}}"
-                  >+{{len $rest}}</span
-                >
+              </summary>
+              <div class="machine__details-panel">
+                <p class="machine__details-heading">Machine configuration (secrets redacted)</p>
+                <pre class="machine__details-data mono private-details__plain">{{.DetailsJSON}}</pre>
+                <pre class="machine__details-data mono private-details__masked">{{.DetailsJSONMasked}}</pre>
+              </div>
+            </details>
+            {{else}}
+            <div class="machine__identity">
+              <span class="machine__status" data-status="unknown" role="img" aria-label="Reachability unknown"></span>
+              <span class="machine__name">
+                {{if .IconClass}}<i class="{{.IconClass}} machine__icon" aria-hidden="true"></i>{{end}}
+                <span class="machine__name-text">{{.Name}}</span>
+              </span>
+            </div>
+            {{end}}
+
+            <div class="machine__body">
+              <div class="machine__info">
+                {{if .IPVisible}}
+                <div class="machine__property">
+                  <span class="machine__property-label">IP:</span>
+                  <span class="machine__property-value mono">
+                    <span class="private-value__plain">{{if .IP}}{{.IP}}{{else}}Not configured{{end}}</span>
+                    <span class="private-value__mask">•••.•••.•••.•••</span>
+                  </span>
+                </div>
+                {{end}}
+                {{if .MACVisible}}
+                <div class="machine__property">
+                  <span class="machine__property-label">MAC:</span>
+                  <span class="machine__property-value mono">
+                    <span class="private-value__plain">{{.Mac}}</span>
+                    <span class="private-value__mask">••:••:••:••:••:••</span>
+                  </span>
+                </div>
+                {{end}}
+                {{$scheds := index $.SchedulesByMachine .Name}}
+                {{if $scheds}}
+                {{$first := index $scheds 0}}
+                <div class="machine__schedules">
+                  <span class="machine__schedule" {{if $first.Name}}title="{{$first.Name}}"{{end}}>
+                    <i class="bi bi-clock" aria-hidden="true"></i>
+                    <span class="mono">{{$first.Cron}}</span>
+                  </span>
+                  {{if gt (len $scheds) 1}}
+                  {{$rest := slice $scheds 1}}
+                  <span class="machine__schedule machine__schedule--more" title="{{range $i, $r := $rest}}{{if $i}}&#10;{{end}}{{if $r.Name}}{{$r.Name}}: {{end}}{{$r.Cron}}{{end}}">+{{len $rest}}</span>
+                  {{end}}
+                </div>
                 {{end}}
               </div>
-              {{end}}
+              <div class="machine__power-actions{{if not (and .SOLEnabled (or .SOLIP .IP $.SOLIP))}} machine__power-actions--wake-only{{end}}" role="group" aria-label="Power controls for {{.Name}}">
+                <form class="wake-form" action="/wake" method="POST">
+                  <input type="hidden" name="name" value="{{.Name}}" />
+                  <button type="submit" class="machine__power-button machine__power-button--wake" aria-label="Wake {{.Name}}" title="Wake {{.Name}}"><i class="bi bi-lightning-charge-fill" aria-hidden="true"></i>Wake</button>
+                </form>
+                {{if and .SOLEnabled (or .SOLIP .IP $.SOLIP)}}
+                <form class="sleep-form" action="/sleep" method="POST">
+                  <input type="hidden" name="name" value="{{.Name}}" />
+                  <button type="submit" class="machine__power-button machine__power-button--sleep" aria-label="Sleep {{.Name}}" title="Sleep {{.Name}}"><i class="bi bi-moon-stars-fill" aria-hidden="true"></i>Sleep</button>
+                </form>
+                {{end}}
+              </div>
             </div>
-            <form class="wake-form" action="/wake" method="POST">
-              <input type="hidden" name="name" value="{{.Name}}" />
-              <button type="submit" class="wake" aria-label="Wake {{.Name}}">
-                Wake
-              </button>
-            </form>
           </li>
           {{end}}
         </ul>
         {{else}}
         <div class="empty">
           <span class="empty__icon" aria-hidden="true">
-            <svg
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              stroke-width="1.8"
-              stroke-linecap="round"
-              stroke-linejoin="round"
-            >
-              <rect x="2" y="4" width="20" height="13" rx="2.5" />
-              <path d="M8 21h8M12 17v4" />
-              <path d="m7 10 2.5 2.5L7 15" />
-            </svg>
+            <i class="bi bi-display" aria-hidden="true"></i>
           </span>
           <div class="empty__title">No machines configured</div>
           <p class="empty__help">
@@ -542,38 +633,33 @@
         </div>
         {{end}}
       </main>
-
-      <footer class="footer">
-        <nav class="footer__links">
-          <a
-            class="footer__link"
-            href="https://github.com/Trugamr/wol"
-            target="_blank"
-            rel="noopener noreferrer"
-            >GitHub</a
-          >
-          <a
-            class="footer__link"
-            href="https://github.com/Trugamr/wol/issues"
-            target="_blank"
-            rel="noopener noreferrer"
-            >Report Issue</a
-          >
-          <a
-            class="footer__link"
-            href="https://github.com/Trugamr/wol/blob/main/README.md"
-            target="_blank"
-            rel="noopener noreferrer"
-            >Documentation</a
-          >
-        </nav>
-        <div class="footer__version mono">
-          {{.Version}} ({{.Commit}}) · built {{.Date}}
-        </div>
-      </footer>
     </div>
 
     <script>
+      // Visual privacy control; this does not protect addresses in page source,
+      // nor change the network configuration. Remember the choice after POSTs.
+      const privacyToggle = document.getElementById("address-privacy-toggle");
+      if (privacyToggle) {
+        let masked = true; // protect addresses on first visit and on storage failure
+        try {
+          const saved = localStorage.getItem("swol-addresses-masked");
+          if (saved !== null) masked = saved !== "false";
+        } catch (_) {}
+        const renderPrivacy = () => {
+          document.documentElement.dataset.addressesMasked = String(masked);
+          privacyToggle.setAttribute("aria-pressed", String(masked));
+          const label = masked ? "Show IP and MAC addresses" : "Mask IP and MAC addresses";
+          privacyToggle.setAttribute("aria-label", label);
+          privacyToggle.title = label;
+        };
+        renderPrivacy();
+        privacyToggle.addEventListener("click", () => {
+          masked = !masked;
+          try { localStorage.setItem("swol-addresses-masked", String(masked)); } catch (_) {}
+          renderPrivacy();
+        });
+      }
+
       const source = new EventSource("/status");
 
       source.onmessage = function (event) {
@@ -587,7 +673,10 @@
           if (machine.dataset.name in statuses) {
             const status = statuses[machine.dataset.name];
             const element = machine.querySelector(".machine__status");
-            element.dataset.status = status;
+            if (element) {
+              element.dataset.status = status;
+              element.setAttribute("aria-label", `Reachability ${status}`);
+            }
           }
         }
       };

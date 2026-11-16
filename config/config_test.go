@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -15,6 +16,15 @@ func writeConfig(t *testing.T, content string) string {
 	path := filepath.Join(t.TempDir(), configFilename)
 	require.NoError(t, os.WriteFile(path, []byte(content), 0o600))
 	return path
+}
+
+func TestDefaultConfigPaths(t *testing.T) {
+	home := filepath.Join("home", "test-user")
+	assert.Equal(t, []string{
+		filepath.Join("/etc", "swol", configFilename),
+		filepath.Join(home, ".swol", configFilename),
+		filepath.Join(".", configFilename),
+	}, defaultConfigPaths(home))
 }
 
 func TestLoadDefaults(t *testing.T) {
@@ -30,6 +40,11 @@ func TestLoadDefaults(t *testing.T) {
 	// The broadcast target defaults to the limited broadcast on port 9.
 	assert.Equal(t, "255.255.255.255", c.Broadcast.Address)
 	assert.Equal(t, 9, c.Broadcast.Port)
+	// Sleep-On-LAN is opt-in, with the Sleep-On-LAN project's default HTTP endpoint.
+	assert.Equal(t, 8009, c.Sleep.Port)
+	assert.Equal(t, "/sleep", c.Sleep.Path)
+	assert.Equal(t, "3s", c.Sleep.ConnectTimeout)
+	assert.Equal(t, "8s", c.Sleep.Timeout)
 	// Defaults alone are not a config "source".
 	assert.Empty(t, sources)
 }
@@ -363,4 +378,157 @@ machines:
 	_, err := c.load([]string{file}, true)
 	require.NoError(t, err)
 	assert.Empty(t, c.Schedules)
+}
+
+func TestLoadSOLConfiguration(t *testing.T) {
+	t.Setenv(configEnvVar, "")
+	file := writeConfig(t, `
+sol_port: 8009
+sol_protocol: http
+sol_path: "/sleep"
+sol_format: JSON
+sol_auth_username: "sol-user"
+sol_auth_password: "sol-password"
+sol_connect_timeout: 4s
+sol_timeout: 10s
+sol_headers:
+  X-Proxy-Token: global-token
+sol_query_params:
+  source: wol-ui
+machines:
+  - name: desktop
+    mac: "01:02:03:04:05:06"
+    ip: "192.168.1.105"
+    sol_enabled: true
+    sol_ip: "192.168.1.106"
+    sol_port: 8010
+    sol_headers:
+      X-Machine: desktop
+    sol_query_params:
+      machine: desktop
+`)
+
+	c := NewConfig()
+	_, err := c.load([]string{file}, true)
+	require.NoError(t, err)
+	require.Len(t, c.Machines, 1)
+	assert.True(t, c.Machines[0].SOLEnabled)
+	assert.Equal(t, 8009, c.SOLPort)
+	assert.Equal(t, "http", c.SOLProtocol)
+	assert.Equal(t, "/sleep", c.SOLPath)
+	assert.Equal(t, "JSON", c.SOLFormat)
+
+	request, err := c.SOLRequestFor(c.Machines[0])
+	require.NoError(t, err)
+	assert.Equal(t, "http://192.168.1.106:8010/sleep?format=JSON&machine=desktop&source=wol-ui", request.Endpoint)
+	assert.Equal(t, 4*time.Second, request.ConnectTimeout)
+	assert.Equal(t, 10*time.Second, request.Timeout)
+	assert.Equal(t, "sol-user", request.Username)
+	assert.Equal(t, "sol-password", request.Password)
+	assert.Equal(t, "global-token", request.Headers["X-Proxy-Token"])
+	assert.Equal(t, "desktop", request.Headers["X-Machine"])
+}
+
+func TestSOLRequestForUsesMachineIPAndDefaults(t *testing.T) {
+	ip := "192.168.1.105"
+	c := &Config{Machines: []Machine{{Name: "desktop", IP: &ip, SOLEnabled: true}}}
+	request, err := c.SOLRequestFor(c.Machines[0])
+	require.NoError(t, err)
+	assert.Equal(t, "http://192.168.1.105:8009/sleep", request.Endpoint)
+	assert.Equal(t, 3*time.Second, request.ConnectTimeout)
+	assert.Equal(t, 8*time.Second, request.Timeout)
+}
+
+func TestSOLRequestForRejectsInvalidConfiguration(t *testing.T) {
+	ip := "192.168.1.105"
+	tests := []struct {
+		name string
+		cfg  Config
+		want string
+	}{
+		{name: "machine not opted in", cfg: Config{Machines: []Machine{{Name: "desktop", IP: &ip}}}, want: "not enabled"},
+		{name: "missing IP", cfg: Config{Machines: []Machine{{Name: "desktop", SOLEnabled: true}}}, want: "no Sleep-On-LAN IP"},
+		{name: "invalid port", cfg: Config{Machines: []Machine{{Name: "desktop", SOLEnabled: true, SOLIP: ip, SOLPort: 70000}}}, want: "sol_port"},
+		{name: "invalid protocol", cfg: Config{Machines: []Machine{{Name: "desktop", SOLEnabled: true, SOLIP: ip, SOLProtocol: "ftp"}}}, want: "sol_protocol"},
+		{name: "invalid path", cfg: Config{Machines: []Machine{{Name: "desktop", SOLEnabled: true, SOLIP: ip, SOLPath: "https://example.com/sleep"}}}, want: "sol_path"},
+		{name: "incomplete auth", cfg: Config{SOLAuthUsername: "user", Machines: []Machine{{Name: "desktop", SOLEnabled: true, SOLIP: ip}}}, want: "must be set together"},
+		{name: "invalid format", cfg: Config{Machines: []Machine{{Name: "desktop", SOLEnabled: true, SOLIP: ip, SOLFormat: "CSV"}}}, want: "sol_format"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			machine := tt.cfg.Machines[0]
+			_, err := tt.cfg.SOLRequestFor(machine)
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), tt.want)
+		})
+	}
+}
+
+func boolptr(v bool) *bool { return &v }
+
+func TestMachineVisibilityDefaults(t *testing.T) {
+	defaultMachine := Machine{}
+	assert.True(t, defaultMachine.MACVisible())
+	assert.True(t, defaultMachine.IPVisible())
+	assert.True(t, defaultMachine.DetailsVisible())
+
+	optedOut := Machine{ShowMAC: boolptr(false), ShowIP: boolptr(false), ShowDetails: boolptr(false)}
+	assert.False(t, optedOut.MACVisible())
+	assert.False(t, optedOut.IPVisible())
+	assert.False(t, optedOut.DetailsVisible())
+
+	optedIn := Machine{ShowMAC: boolptr(true), ShowIP: boolptr(true), ShowDetails: boolptr(true)}
+	assert.True(t, optedIn.MACVisible())
+	assert.True(t, optedIn.IPVisible())
+	assert.True(t, optedIn.DetailsVisible())
+}
+
+func TestLoadMachineVisibility(t *testing.T) {
+	c := NewConfig()
+	err := c.Load(writeConfig(t, `
+machines:
+  - name: visible-by-default
+    mac: "00:11:22:33:44:55"
+    ip: "192.168.1.3"
+    icon: pc-display
+  - name: hidden
+    mac: "00:11:22:33:44:66"
+    show_mac: false
+    show_ip: false
+    show_details: false
+  - name: explicitly-visible
+    mac: "00:11:22:33:44:77"
+    show_mac: true
+    show_ip: true
+    show_details: true
+`))
+	require.NoError(t, err)
+	require.Len(t, c.Machines, 3)
+	assert.Nil(t, c.Machines[0].ShowMAC)
+	assert.Nil(t, c.Machines[0].ShowIP)
+	assert.Nil(t, c.Machines[0].ShowDetails)
+	assert.True(t, c.Machines[0].MACVisible())
+	assert.True(t, c.Machines[0].IPVisible())
+	assert.True(t, c.Machines[0].DetailsVisible())
+	assert.Equal(t, "bi bi-pc-display", c.Machines[0].IconClass())
+	assert.False(t, c.Machines[1].MACVisible())
+	assert.False(t, c.Machines[1].IPVisible())
+	assert.False(t, c.Machines[1].DetailsVisible())
+	assert.True(t, c.Machines[2].MACVisible())
+	assert.True(t, c.Machines[2].IPVisible())
+	assert.True(t, c.Machines[2].DetailsVisible())
+}
+
+func TestMachineIconClass(t *testing.T) {
+	cases := []struct{ input, expected string }{
+		{"laptop", "bi bi-laptop"},
+		{"bi-pc-display", "bi bi-pc-display"},
+		{"  HDD-NETWORK  ", "bi bi-hdd-network"},
+		{"", ""},
+		{"pc-display other-class", ""},
+		{`" onclick="evil`, ""},
+	}
+	for _, tt := range cases {
+		assert.Equal(t, tt.expected, (Machine{Icon: tt.input}).IconClass())
+	}
 }

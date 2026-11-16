@@ -6,7 +6,7 @@ import (
 	"net"
 
 	"github.com/robfig/cron/v3"
-	"github.com/trugamr/wol/config"
+	"swol/config"
 )
 
 // resolvedSchedule is a config.Schedule that has been validated against the

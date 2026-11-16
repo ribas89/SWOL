@@ -1,4 +1,4 @@
-module github.com/trugamr/wol
+module swol
 
 go 1.26
 

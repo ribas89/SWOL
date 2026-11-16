@@ -1,0 +1,36 @@
+# SWOL looks for ./config.yaml, ~/.swol/config.yaml, or /etc/swol/config.yaml.
+# Generic Sleep-on-LAN example. Replace addresses with values from your own network.
+# Replace sample MAC addresses with real hardware addresses before using this file.
+# Each machine controls its own Sleep button with sol_enabled: true.
+
+machines:
+  - name: workstation
+    mac: "02:00:00:00:00:01"
+    ip: "192.168.1.100"
+    sol_enabled: true
+    sol_ip: "192.168.1.100"
+    sol_port: 8009
+    sol_protocol: http
+    sol_path: "/sleep"
+    sol_format: "" # Empty uses the service default (XML); use JSON to request JSON.
+    sol_auth_username: ""
+    sol_auth_password: ""
+    sol_connect_timeout: 3s
+    sol_timeout: 8s
+    sol_headers: {}
+    sol_query_params: {}
+
+  - name: laptop
+    mac: "02:00:00:00:00:02"
+    ip: "192.168.1.101"
+    # Add sol_enabled: true and its sol_* settings to enable its Sleep button.
+
+server:
+  listen: "0.0.0.0:7777"
+
+broadcast:
+  address: "192.168.1.255"
+  port: 9
+
+ping:
+  privileged: false

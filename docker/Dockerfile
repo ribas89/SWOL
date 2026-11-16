@@ -11,22 +11,15 @@ COPY . .
 
 ARG TARGETOS
 ARG TARGETARCH
-# Version info, injected via ldflags. Defaults keep a plain `docker build` working.
-ARG VERSION=dev
-ARG COMMIT=none
-ARG DATE=unknown
-RUN CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH \
-    go build -ldflags="-s -w \
-      -X github.com/trugamr/wol/cmd.version=${VERSION} \
-      -X github.com/trugamr/wol/cmd.commit=${COMMIT} \
-      -X github.com/trugamr/wol/cmd.date=${DATE}" -o wol
+ARG TARGETVARIANT
+RUN if [ "$TARGETARCH" = "arm" ]; then \
+      export GOARM="${TARGETVARIANT#v}"; \
+    fi; \
+    CGO_ENABLED=0 GOOS="$TARGETOS" GOARCH="$TARGETARCH" go build -o swol .
 
-#------------------#
+FROM gcr.io/distroless/static-debian12
 
-FROM gcr.io/distroless/static-debian12 AS release
-
-COPY --from=builder /app/wol /usr/local/bin/wol
+COPY --from=builder /app/swol /usr/local/bin/swol
 
 USER nonroot:nonroot
-
-ENTRYPOINT ["/usr/local/bin/wol"]
+ENTRYPOINT ["/usr/local/bin/swol"]

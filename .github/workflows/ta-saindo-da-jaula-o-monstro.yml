@@ -1,0 +1,269 @@
+name: TA SAINDO DA JAULA O MONSTRO
+
+# Releases are manual only. No release-please bot, push or tag trigger.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: swol-manual-release
+  cancel-in-progress: false
+
+jobs:
+  prepare:
+    name: Read and validate release version
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.meta.outputs.version }}
+      tag: ${{ steps.meta.outputs.tag }}
+      image: ${{ steps.meta.outputs.image }}
+    steps:
+      - name: Checkout source and tags
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Only release the default branch
+        shell: bash
+        env:
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+        run: |
+          set -euo pipefail
+          if [[ "$GITHUB_REF" != "refs/heads/$DEFAULT_BRANCH" ]]; then
+            echo "::error::Run this workflow from the default branch ($DEFAULT_BRANCH)."
+            exit 1
+          fi
+
+      - name: Read version from .release-please-manifest.json
+        id: meta
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PYTHON'
+          import json
+          import os
+          import re
+
+          with open('.release-please-manifest.json', encoding='utf-8') as file:
+              manifest = json.load(file)
+
+          version = manifest.get('.')
+          if not isinstance(version, str) or not re.fullmatch(
+              r'(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)',
+              version,
+          ):
+              raise SystemExit('Invalid manifest version: expected X.Y.Z, e.g. 2.0.0')
+
+          tag = f'v{version}'
+          image = 'ghcr.io/' + os.environ['GITHUB_REPOSITORY'].lower()
+          with open(os.environ['GITHUB_OUTPUT'], 'a', encoding='utf-8') as output:
+              print(f'version={version}', file=output)
+              print(f'tag={tag}', file=output)
+              print(f'image={image}', file=output)
+          print(f'Release: {tag}')
+          print(f'Container: {image}:{tag}')
+          PYTHON
+
+      - name: Check for an existing tag or release
+        shell: bash
+        env:
+          TAG: ${{ steps.meta.outputs.tag }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            echo "::error::GitHub Release $TAG already exists. Bump the manifest version."
+            exit 1
+          fi
+          if git show-ref --verify --quiet "refs/tags/$TAG"; then
+            TAG_COMMIT="$(git rev-parse "$TAG^{commit}")"
+            if [[ "$TAG_COMMIT" != "$GITHUB_SHA" ]]; then
+              echo "::error::Tag $TAG points to $TAG_COMMIT, not this commit $GITHUB_SHA."
+              exit 1
+            fi
+            echo "Tag $TAG already points to this commit - safe to resume a failed release."
+          fi
+
+  test:
+    name: Test Go source
+    needs: prepare
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+      - run: go test ./...
+
+  cli:
+    name: CLI - ${{ matrix.platform }}
+    needs: [prepare, test]
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - {platform: linux_amd64, goos: linux, goarch: amd64, ext: ''}
+          - {platform: linux_arm64, goos: linux, goarch: arm64, ext: ''}
+          - {platform: linux_armv7, goos: linux, goarch: arm, goarm: '7', ext: ''}
+          - {platform: linux_386, goos: linux, goarch: '386', ext: ''}
+          - {platform: darwin_amd64, goos: darwin, goarch: amd64, ext: ''}
+          - {platform: darwin_arm64, goos: darwin, goarch: arm64, ext: ''}
+          - {platform: windows_amd64, goos: windows, goarch: amd64, ext: '.exe'}
+          - {platform: windows_386, goos: windows, goarch: '386', ext: '.exe'}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+
+      - name: Cross-compile and package SWOL
+        shell: bash
+        env:
+          TAG: ${{ needs.prepare.outputs.tag }}
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+          GOARM: ${{ matrix.goarm }}
+          PLATFORM: ${{ matrix.platform }}
+          EXT: ${{ matrix.ext }}
+        run: |
+          set -euo pipefail
+          PACKAGE="swol_${TAG}_${PLATFORM}"
+          mkdir -p "dist/${PACKAGE}"
+
+          CGO_ENABLED=0 go build -trimpath -ldflags='-s -w' \
+            -o "dist/${PACKAGE}/swol${EXT}" .
+          cp README.md LICENSE.md config.example.yaml "dist/${PACKAGE}/"
+
+          if [[ "$GOOS" == "windows" ]]; then
+            (cd dist && zip -q -r "${PACKAGE}.zip" "${PACKAGE}")
+          else
+            (cd dist && tar -czf "${PACKAGE}.tar.gz" "${PACKAGE}")
+          fi
+
+      - name: Upload CLI archive
+        uses: actions/upload-artifact@v4
+        with:
+          name: cli-${{ matrix.platform }}
+          path: |
+            dist/swol_*.tar.gz
+            dist/swol_*.zip
+          if-no-files-found: error
+          retention-days: 7
+
+  docker:
+    name: Publish multi-arch Docker image
+    needs: [prepare, cli]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v7
+
+      # The Dockerfile cross-compiles Go on the build host. No QEMU is required.
+      - uses: docker/setup-buildx-action@v4
+
+      - name: Login to GitHub Container Registry
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push SWOL
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          file: docker/Dockerfile
+          platforms: linux/amd64,linux/arm64,linux/arm/v7
+          push: true
+          tags: |
+            ${{ needs.prepare.outputs.image }}:${{ needs.prepare.outputs.tag }}
+            ${{ needs.prepare.outputs.image }}:latest
+          labels: |
+            org.opencontainers.image.title=SWOL
+            org.opencontainers.image.description=Sleep-on-LAN and Wake-on-LAN web and CLI tool
+            org.opencontainers.image.source=https://github.com/${{ github.repository }}
+            org.opencontainers.image.version=${{ needs.prepare.outputs.version }}
+            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.licenses=MIT
+
+  release:
+    name: Create Git tag and GitHub Release
+    needs: [prepare, cli, docker]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Download CLI packages
+        uses: actions/download-artifact@v4
+        with:
+          pattern: cli-*
+          path: release-assets
+          merge-multiple: true
+
+      - name: Verify packages and create checksums
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd release-assets
+          shopt -s nullglob
+          archives=( ./*.tar.gz ./*.zip )
+          if [[ "${#archives[@]}" -ne 8 ]]; then
+            echo "::error::Expected 8 CLI archives; found ${#archives[@]}."
+            exit 1
+          fi
+          sha256sum "${archives[@]}" > SHA256SUMS.txt
+
+      - name: Create (or reuse) the version tag
+        shell: bash
+        env:
+          TAG: ${{ needs.prepare.outputs.tag }}
+        run: |
+          set -euo pipefail
+          if git show-ref --verify --quiet "refs/tags/$TAG"; then
+            TAG_COMMIT="$(git rev-parse "$TAG^{commit}")"
+            if [[ "$TAG_COMMIT" != "$GITHUB_SHA" ]]; then
+              echo "::error::Existing tag $TAG belongs to a different commit."
+              exit 1
+            fi
+            echo "Reusing $TAG for this commit."
+          else
+            git tag "$TAG" "$GITHUB_SHA"
+            git push origin "refs/tags/$TAG"
+          fi
+
+      - name: Publish GitHub Release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          TAG: ${{ needs.prepare.outputs.tag }}
+          IMAGE: ${{ needs.prepare.outputs.image }}
+        run: |
+          set -euo pipefail
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            echo "::error::Release $TAG already exists."
+            exit 1
+          fi
+          gh release create "$TAG" release-assets/*.tar.gz release-assets/*.zip \
+            release-assets/SHA256SUMS.txt \
+            --verify-tag \
+            --title "SWOL $TAG" \
+            --generate-notes \
+            --notes "**Docker:** \`docker pull ${IMAGE}:${TAG}\`  
+          **CLI:** Download the archive for your operating system and architecture. SHA-256 checksums are attached."
+
+          {
+            echo "### SWOL $TAG released"
+            echo "- GitHub Release: https://github.com/${GITHUB_REPOSITORY}/releases/tag/$TAG"
+            echo "- Docker: \`${IMAGE}:${TAG}\` and \`${IMAGE}:latest\`"
+            echo "- CLI: 8 platform archives and SHA256SUMS.txt"
+          } >> "$GITHUB_STEP_SUMMARY"

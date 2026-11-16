@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"context"
 	"embed"
 	"encoding/json"
 	"fmt"
@@ -16,8 +17,8 @@ import (
 
 	probing "github.com/prometheus-community/pro-bing"
 	"github.com/spf13/cobra"
-	"github.com/trugamr/wol/config"
-	"github.com/trugamr/wol/magicpacket"
+	"swol/config"
+	"swol/magicpacket"
 )
 
 //go:embed templates/*
@@ -32,8 +33,8 @@ func init() {
 
 var serveCmd = &cobra.Command{
 	Use:   "serve",
-	Short: "Serve a web interface to wake up machines",
-	Long:  "Serve a web interface that lists all the configured machines and allows you to wake them up",
+	Short: "Serve a web interface to manage machine power",
+	Long:  "Serve a web interface that lists configured machines and allows Wake-on-LAN and optional Sleep-On-LAN actions",
 	Args:  cobra.NoArgs,
 	Run: func(cmd *cobra.Command, args []string) {
 		if sources := cfg.Sources(); len(sources) > 0 {
@@ -49,6 +50,22 @@ var serveCmd = &cobra.Command{
 			cobra.CheckErr(err)
 			sched.start()
 			log.Printf("Started %d scheduled wake-up(s)", len(cfg.Schedules))
+		}
+
+		enabledMachines := 0
+		for _, machine := range cfg.Machines {
+			if !machine.SOLEnabled {
+				continue
+			}
+			request, err := cfg.SOLRequestFor(machine)
+			if err != nil {
+				cobra.CheckErr(err)
+			}
+			enabledMachines++
+			log.Printf("Sleep-On-LAN enabled for %s at %s", machine.Name, request.Endpoint)
+		}
+		if enabledMachines > 0 {
+			log.Printf("Sleep-On-LAN enabled for %d machine(s)", enabledMachines)
 		}
 
 		handler := newServer(cfg, newProbingPinger(cfg.Ping.Privileged), broadcastWake).routes()
@@ -70,6 +87,9 @@ type Pinger interface {
 // to addr (a "host:port" target).
 type waker func(mac net.HardwareAddr, addr string) error
 
+// sleepRequester sends an HTTP request using the resolved Sleep-On-LAN options.
+type sleepRequester func(ctx context.Context, request config.SOLRequest) error
+
 // broadcastWake is the production waker: it broadcasts a real magic packet.
 func broadcastWake(mac net.HardwareAddr, addr string) error {
 	return magicpacket.NewMagicPacket(mac).Broadcast(addr)
@@ -82,10 +102,11 @@ type server struct {
 	cfg    *config.Config
 	pinger Pinger
 	wake   waker
+	sleep  sleepRequester
 }
 
 func newServer(cfg *config.Config, pinger Pinger, wake waker) *server {
-	return &server{cfg: cfg, pinger: pinger, wake: wake}
+	return &server{cfg: cfg, pinger: pinger, wake: wake, sleep: requestSleep}
 }
 
 // routes registers all HTTP routes and returns the handler.
@@ -93,7 +114,11 @@ func (s *server) routes() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /{$}", s.handleIndex)
 	mux.HandleFunc("POST /wake", s.handleWake)
+	mux.HandleFunc("POST /sleep", s.handleSleep)
 	mux.HandleFunc("GET /status", s.handleStatus)
+	mux.HandleFunc("GET /favicon.ico", func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, "/static/favicon.ico", http.StatusPermanentRedirect)
+	})
 
 	// Serve embedded static assets (favicon, logo) under /static/. The embed
 	// keeps them under a "static/" prefix that matches the URL prefix, so the
@@ -101,6 +126,15 @@ func (s *server) routes() http.Handler {
 	mux.Handle("GET /static/", http.FileServerFS(staticFiles))
 
 	return mux
+}
+
+// machineView keeps web-only data separate from the configuration used by the
+// wake/sleep endpoints. Machine is embedded so the template can use its usual
+// fields; DetailsJSON contains a redacted representation of its configuration.
+type machineView struct {
+	config.Machine
+	DetailsJSON       string
+	DetailsJSONMasked string
 }
 
 func (s *server) handleIndex(w http.ResponseWriter, r *http.Request) {
@@ -124,13 +158,23 @@ func (s *server) handleIndex(w http.ResponseWriter, r *http.Request) {
 		schedulesByMachine[m.Name] = append(schedulesByMachine[m.Name], sch)
 	}
 
+	// Prepare an explicitly redacted copy for the details panel. Never send
+	// configured HTTP Basic Auth passwords or API tokens to the browser.
+	machineViews := make([]machineView, 0, len(s.cfg.Machines))
+	for _, machine := range s.cfg.Machines {
+		view := machineView{Machine: machine}
+		if machine.DetailsVisible() {
+			view.DetailsJSON = machineConfigDetails(machine, schedulesByMachine[machine.Name])
+			view.DetailsJSONMasked = machineConfigDetailsWithPrivacy(machine, schedulesByMachine[machine.Name], true)
+		}
+		machineViews = append(machineViews, view)
+	}
+
 	// Execute the template
 	data := map[string]interface{}{
-		"Machines":           s.cfg.Machines,
+		"Machines":           machineViews,
+		"SOLIP":              s.cfg.SOLIP,
 		"SchedulesByMachine": schedulesByMachine,
-		"Version":            version,
-		"Commit":             commit,
-		"Date":               date,
 		"FlashMessage":       consumeFlashMessage(w, r), // Get flash message from cookie
 	}
 	err = index.Execute(w, data)
@@ -198,6 +242,78 @@ func (s *server) handleWake(w http.ResponseWriter, r *http.Request) {
 	setFlashMessage(w, fmt.Sprintf("Wake-up signal sent to %s. The machine should wake up shortly.", machineName))
 
 	http.Redirect(w, r, "/", http.StatusSeeOther)
+}
+
+// handleSleep asks the configured Sleep-On-LAN service on a machine to put it
+// into sleep mode. The remote endpoint is a GET request; this application only
+// exposes the action as POST to avoid triggering it from a link or prefetch.
+func (s *server) handleSleep(w http.ResponseWriter, r *http.Request) {
+	machineName := r.FormValue("name")
+	machine, err := s.cfg.MachineByName(machineName)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	request, err := s.cfg.SOLRequestFor(machine)
+	if err != nil {
+		status := http.StatusBadRequest
+		if !machine.SOLEnabled {
+			status = http.StatusNotFound
+		}
+		http.Error(w, err.Error(), status)
+		return
+	}
+
+	log.Printf("Sending Sleep-On-LAN request to %s at %s", machine.Name, request.Endpoint)
+	if err := s.sleep(r.Context(), request); err != nil {
+		log.Printf("Error sending Sleep-On-LAN request to %s: %v", machine.Name, err)
+		http.Error(w, err.Error(), http.StatusBadGateway)
+		return
+	}
+
+	setFlashMessage(w, fmt.Sprintf("Sleep request accepted by %s.", machine.Name))
+	http.Redirect(w, r, "/", http.StatusSeeOther)
+}
+
+// requestSleep calls the Sleep-On-LAN HTTP endpoint. It deliberately does not
+// follow redirects, because a sleep command should only be sent to the configured
+// machine and not to a URL supplied by a remote redirect.
+func requestSleep(ctx context.Context, options config.SOLRequest) error {
+	transport := &http.Transport{
+		DialContext:         (&net.Dialer{Timeout: options.ConnectTimeout}).DialContext,
+		TLSHandshakeTimeout: options.ConnectTimeout,
+	}
+	defer transport.CloseIdleConnections()
+
+	client := &http.Client{
+		Transport: transport,
+		Timeout:   options.Timeout,
+		CheckRedirect: func(_ *http.Request, _ []*http.Request) error {
+			return http.ErrUseLastResponse
+		},
+	}
+	request, err := http.NewRequestWithContext(ctx, http.MethodGet, options.Endpoint, nil)
+	if err != nil {
+		return fmt.Errorf("create Sleep-On-LAN request: %w", err)
+	}
+	for name, value := range options.Headers {
+		request.Header.Set(name, value)
+	}
+	if options.Username != "" || options.Password != "" {
+		request.SetBasicAuth(options.Username, options.Password)
+	}
+
+	response, err := client.Do(request)
+	if err != nil {
+		return fmt.Errorf("contact Sleep-On-LAN endpoint: %w", err)
+	}
+	defer response.Body.Close()
+	_, _ = io.Copy(io.Discard, io.LimitReader(response.Body, 4096))
+	if response.StatusCode < http.StatusOK || response.StatusCode >= http.StatusMultipleChoices {
+		return fmt.Errorf("Sleep-On-LAN endpoint returned HTTP %s", response.Status)
+	}
+	return nil
 }
 
 // machineStatus returns the status of a single machine.

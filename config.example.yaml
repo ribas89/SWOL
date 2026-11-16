@@ -1,27 +1,70 @@
-machines:
-  - name: desktop
-    mac: 00:00:00:00:00:01
-  - name: laptop
-    mac: 00:00:00:00:00:02
-    # Per-machine override: useful when this machine lives on a different
-    # subnet/VLAN. Unset fields (here, port) inherit the global broadcast below.
-    broadcast:
-      address: 192.168.1.255
-server:
-  listen: 0.0.0.0:7777
-# Where magic packets are sent. Defaults to 255.255.255.255:9.
-# On a multi-homed host the limited broadcast 255.255.255.255 may leave the wrong
-# interface; use the subnet-directed broadcast (e.g. 192.168.1.255) of the network
-# your device is on so the packet is routed out the correct interface.
-broadcast:
-  address: 255.255.255.255
-  port: 9
-# Check: https://github.com/prometheus-community/pro-bing?tab=readme-ov-file#supported-operating-systems
-ping:
-  privileged: false
-# Optional cron wake-ups, run by the `serve` command. Each schedule wakes a
-# machine (by name) on a cron schedule evaluated in the server's local time.
-# schedules:
-#   - name: weekend-backup # Optional label, shown in logs
-#     machine: desktop     # Must match a machine name above
-#     cron: "0 2 * * 6"    # Saturday 02:00; also supports @daily, @every 1h, etc.
+# SWOL looks for ./config.yaml, ~/.swol/config.yaml, or /etc/swol/config.yaml.
+# SWOL full configuration example - one generic machine, every supported setting.
+# Replace the documentation-only IP/MAC values with your own before running.
+# https://icons.getbootstrap.com/ - browse icon names (use the name without "bi-").
+# Most properties are optional. "REQUIRED" on nested values only applies when
+# you enable the corresponding section/feature.
+
+machines: # REQUIRED - Device list for Wake-on-LAN and the web interface.
+  - name: workstation # REQUIRED - Unique machine name used by CLI and schedules.
+    mac: "02:00:00:00:00:01" # REQUIRED - MAC address for sending Wake-on-LAN magic packets.
+    ip: "192.0.2.10" # OPTIONAL - IP/hostname for ping status and Sleep-on-LAN fallback.
+    icon: pc-display # OPTIONAL - Bootstrap Icons slug, e.g. laptop, router, hdd-network; default: no custom icon.
+    show_mac: true # OPTIONAL - Show the MAC row on the card; default: true.
+    show_ip: true # OPTIONAL - Show the IP row on the card; default: true.
+    show_details: true # OPTIONAL - Allow clicking the machine name to show details; default: true.
+
+    # Sleep-on-LAN values here override the global sol_* values below.
+    sol_enabled: false # OPTIONAL - Enable the Sleep button; default: false. Needs a working SOL HTTP service.
+    sol_ip: "192.0.2.10" # OPTIONAL - SOL service host; otherwise use global sol_ip or the machine's ip.
+    sol_port: 8009 # OPTIONAL - SOL service port; default: 8009.
+    sol_protocol: http # OPTIONAL - SOL scheme: http or https; default: http.
+    sol_path: /sleep # OPTIONAL - Absolute URL path for the SOL GET request; default: /sleep.
+    sol_format: "" # OPTIONAL - Empty uses service response default; JSON requests JSON output.
+    sol_auth_username: "" # OPTIONAL - HTTP Basic Auth username; provide together with sol_auth_password.
+    sol_auth_password: "" # OPTIONAL - HTTP Basic Auth password; provide together with sol_auth_username.
+    sol_connect_timeout: 3s # OPTIONAL - Connection timeout; default: 3s.
+    sol_timeout: 8s # OPTIONAL - Overall request timeout; default: 8s, must be >= connect timeout.
+    sol_headers: {} # OPTIONAL - Extra HTTP headers as key/value pairs; default: none.
+    sol_query_params: {} # OPTIONAL - Extra URL query parameters as key/value pairs; default: none.
+
+    broadcast: # OPTIONAL - Override the global Wake-on-LAN broadcast target for this machine.
+      address: "192.0.2.255" # OPTIONAL - Directed broadcast address; otherwise inherit global broadcast.address.
+      port: 9 # OPTIONAL - Wake-on-LAN UDP port; otherwise inherit global broadcast.port.
+
+server: # OPTIONAL - Web server settings.
+  listen: ":7777" # OPTIONAL - Address/port the dashboard listens on; default: :7777.
+
+broadcast: # OPTIONAL - Global Wake-on-LAN destination (can be overridden per machine).
+  address: "255.255.255.255" # OPTIONAL - Global broadcast address; default: 255.255.255.255.
+  port: 9 # OPTIONAL - Global UDP port for magic packets; default: 9.
+
+ping: # OPTIONAL - Machine status checking settings.
+  privileged: false # OPTIONAL - Use privileged ICMP ping when needed; default: false.
+
+# Global SOL defaults - overridden individually by a machine's sol_* settings.
+sol_ip: "" # OPTIONAL - Default SOL service host; empty falls back to each machine's ip.
+sol_port: 8009 # OPTIONAL - Default SOL service port; default: 8009.
+sol_protocol: http # OPTIONAL - Default SOL scheme (http or https); default: http.
+sol_path: /sleep # OPTIONAL - Default SOL GET endpoint path; default: /sleep.
+sol_format: "" # OPTIONAL - Default SOL response format: empty (service default) or JSON.
+sol_auth_username: "" # OPTIONAL - Default HTTP Basic Auth username; requires matching password.
+sol_auth_password: "" # OPTIONAL - Default HTTP Basic Auth password; requires matching username.
+sol_connect_timeout: 3s # OPTIONAL - Default SOL connection timeout; default: 3s.
+sol_timeout: 8s # OPTIONAL - Default SOL request timeout; default: 8s.
+sol_headers: {} # OPTIONAL - Default HTTP header key/value pairs; default: none.
+sol_query_params: {} # OPTIONAL - Default URL query parameter key/value pairs; default: none.
+
+# Legacy fallback settings. New configurations should prefer the sol_* keys.
+sleep: # OPTIONAL - Legacy SOL defaults for port, path, and timeouts.
+  port: 8009 # OPTIONAL - Legacy SOL port fallback when sol_port is unset.
+  path: /sleep # OPTIONAL - Legacy SOL endpoint path fallback when sol_path is unset.
+  connect_timeout: 3s # OPTIONAL - Legacy SOL connection timeout fallback.
+  timeout: 8s # OPTIONAL - Legacy SOL overall request timeout fallback.
+
+schedules: [] # OPTIONAL - Cron-triggered Wake-on-LAN jobs; empty disables automatic wake-ups.
+# To enable a schedule, replace `schedules: []` with:
+# schedules: # OPTIONAL - List of automatic Wake-on-LAN jobs.
+#   - name: weekday-wake # OPTIONAL - Friendly schedule label; defaults to the machine name.
+#     machine: workstation # REQUIRED when adding a schedule - Must match a machine name.
+#     cron: "0 9 * * 1-5" # REQUIRED when adding a schedule - Cron expression in server-local time.

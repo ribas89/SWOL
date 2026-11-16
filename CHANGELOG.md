@@ -1,4 +1,21 @@
+## Unreleased — SWOL rebrand and inline power controls
+
+- Rename the dashboard and CLI display name to SWOL (Sleep-on-LAN & Wake-on-LAN).
+- Use the supplied `swol.svg` for README, dashboard logo, SVG favicon and generated PNG/ICO icons.
+- Mask IP/MAC addresses by default before initial page paint; remember explicit reveal choices.
+- Place direct Wake and Sleep buttons side by side, full width below IP/MAC information.
+- Prevent detail-expanded cards from stretching other cards in the same grid row.
+- Remove version/commit/date metadata from the CLI, dashboard, Dockerfile and automated release setup.
+- Preserve per-machine Bootstrap icon, IP/MAC visibility and expandable details settings.
+
 # Changelog
+
+## Unreleased
+
+### Features
+
+* expand Sleep-On-LAN configuration with per-machine `sol_*` endpoint, auth, format, header, query, and timeout options
+
 
 ## [0.3.0](https://github.com/Trugamr/wol/compare/v0.2.0...v0.3.0) (2026-06-14)
 

@@ -1,0 +1,9 @@
+# Keep local state and repository metadata out of container build contexts.
+.git/
+.github/
+dist/
+config.yaml
+.env
+.env.*
+*.zip
+*.tar.gz

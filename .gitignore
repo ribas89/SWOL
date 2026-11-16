@@ -1,5 +1,5 @@
 # Build artifacts
-wol
+swol
 *.exe
 dist/
 

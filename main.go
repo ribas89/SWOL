@@ -1,7 +1,7 @@
 package main
 
 import (
-	"github.com/trugamr/wol/cmd"
+	"swol/cmd"
 )
 
 func main() {
